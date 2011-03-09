@@ -2,6 +2,7 @@
 #include <swfdec/swfdec.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <yaml.h>
 
 static int compare_images(cairo_surface_t* image1, cairo_surface_t* image2)
 {
@@ -43,17 +44,22 @@ static int compare_images(cairo_surface_t* image1, cairo_surface_t* image2)
 
 static void print_usage( const char* appname)
 {
-  printf("Usage: %s {-w: _width_} {-h: _height_} {-f: _frames_} [input swf] [output filename]\n", appname );
+  printf("Usage: %s {-w: _width_} {-h: _height_} {-f: _frames_} {-l: _loop_} {-d: _directory_prefix_} [input swf] [output filename]\n", appname );
 }
 
 int main (int argc, char **argv)
 {
   SwfdecPlayer *player;
   SwfdecURL *url;
-  
+  yaml_emitter_t emitter;
+  yaml_event_t event;
+  FILE *output;
+
   int i;
+  const char* directory_prefix = NULL;
   char output_filename_serial[256] = {0};
   unsigned long frame_interval = 0;
+  unsigned long accum_interval = 0;
   int frame_count = 1;
   unsigned int override_width = 0;
   unsigned int override_height = 0;
@@ -62,7 +68,9 @@ int main (int argc, char **argv)
   int base_index = 0;
   cairo_surface_t *surface[2] = {NULL, NULL};
   cairo_t *cr[2] = {NULL, NULL};
-
+  int loop = 0;
+  
+  
   /* Parse the command line arguments */
   for(i = 1; i < argc; ++i )
   {
@@ -80,6 +88,14 @@ int main (int argc, char **argv)
       else if ( arg[1] == 'f' )
       {
         frame_count = atof(arg+3);
+      }
+      else if ( arg[1] == 'l' )
+      {
+        loop = atoi(arg+3);
+      }
+      else if ( arg[1] == 'd' )
+      {
+        directory_prefix = arg+3;
       }
       else
       {
@@ -105,6 +121,10 @@ int main (int argc, char **argv)
     return 1;
   }
 
+  /* Create the Emitter object. */
+  yaml_emitter_initialize(&emitter);
+
+  
   // init
   swfdec_init ();
 
@@ -115,8 +135,29 @@ int main (int argc, char **argv)
      return 1;
   }
 
+  /* Set a file output. */
+  sprintf(output_filename_serial, "%s.yaml", output_filename);
+  output = fopen(output_filename_serial, "wb");
+  yaml_emitter_set_output_file(&emitter, output);
+  //yaml_emitter_set_output(&emitter, write_handler, output);
+
   player = swfdec_player_new (NULL);
   swfdec_player_set_url (player, url);
+
+  /* Create and emit the STREAM-START event. */
+  yaml_stream_start_event_initialize(&event, YAML_UTF8_ENCODING);
+  yaml_emitter_emit(&emitter, &event);
+  /* Create document */
+  yaml_document_start_event_initialize(&event, NULL, NULL, NULL, 1);
+  yaml_emitter_emit(&emitter, &event);
+  /* Create mapping */
+  yaml_mapping_start_event_initialize(&event, NULL, NULL, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);
+
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"type", strlen("type"), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);  
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"keyframe", strlen("keyframe"), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);
 
   swfdec_player_advance (player, 0);
 
@@ -130,11 +171,43 @@ int main (int argc, char **argv)
     swfdec_player_set_size(player, override_width, override_height);
   }
 
+  {
+  char buf[256] = {0};
+
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"defaultframerate", strlen("defaultframerate"), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);
+  sprintf(buf, "%f", swfdec_player_get_rate(player));  
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)buf, strlen(buf), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);
+
+  }
+
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"loop", strlen("loop"), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);  
+  if ( loop )
+  {
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"true", strlen("true"), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+  }
+  else
+  {
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"false", strlen("false"), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+  }
+
+  
+
   printf("Default frame rate: %f\n", swfdec_player_get_rate(player));
   frame_interval = (unsigned long)(1000.0 / swfdec_player_get_rate(player));
   printf("Default frame interval: %ld\n", frame_interval);
 
-  //swfdec_player_advance (player, frame_interval/2);
+  
+  yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"content", strlen("content"), 1, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);  
+
+  /* Create mapping */
+  yaml_mapping_start_event_initialize(&event, NULL, NULL, 1, YAML_ANY_SCALAR_STYLE);
+  yaml_emitter_emit(&emitter, &event);
 
   for(i = 0; i < frame_count; ++i )
   {
@@ -144,9 +217,9 @@ int main (int argc, char **argv)
     // render the image
     swfdec_player_render (player, cr[new_index]);
 
-    
+    frame_interval = swfdec_player_get_next_event(player);
+    accum_interval += frame_interval;
 
-#if 1
     if ( compare_images(surface[base_index], surface[new_index]) <= 5 )
     {
       cairo_destroy (cr[new_index]);
@@ -154,26 +227,37 @@ int main (int argc, char **argv)
       cr[new_index] = NULL;
       surface[new_index] = NULL;
 
-      frame_interval = swfdec_player_get_next_event(player);
       if ( frame_interval > 0 )
         swfdec_player_advance (player, frame_interval);
     }
     else
-#endif
     {
+
+      if ( surface[base_index] && surface[new_index] )
+      {
+        char buf[256] = {0};
+        sprintf(buf, "%f", (double)accum_interval / 1000.0);
+        yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)output_filename_serial, strlen(output_filename_serial), 1, 1, YAML_ANY_SCALAR_STYLE);
+        yaml_emitter_emit(&emitter, &event);
+        yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)buf, strlen(buf), 1, 1, YAML_ANY_SCALAR_STYLE);
+        yaml_emitter_emit(&emitter, &event);
+        accum_interval = 0;
+      }
 
       cairo_destroy (cr[base_index]);
       cairo_surface_destroy (surface[base_index]);
       cr[base_index] = NULL;
       surface[base_index] = NULL;
 
-      sprintf(output_filename_serial, "%s%3.3d.png", output_filename, i+1);
+      if (directory_prefix)
+        sprintf(output_filename_serial, "%s/%s%3.3d.png", directory_prefix, output_filename, i+1);
+      else
+        sprintf(output_filename_serial, "%s%3.3d.png", output_filename, i+1);
+
       cairo_surface_write_to_png (surface[new_index], output_filename_serial);
-      frame_interval = swfdec_player_get_next_event(player);
       if ( frame_interval > 0 )
         swfdec_player_advance (player, frame_interval);
       
-
       base_index = new_index;
     }
   }
@@ -183,6 +267,28 @@ int main (int argc, char **argv)
 
   g_object_unref (player);
   swfdec_url_free(url);
+
+  /* End mapping */
+  yaml_mapping_end_event_initialize(&event);
+  yaml_emitter_emit(&emitter, &event);
+
+  /* End mapping */
+  yaml_mapping_end_event_initialize(&event);
+  yaml_emitter_emit(&emitter, &event);
+
+  /* End of document */
+  yaml_stream_end_event_initialize(&event);
+  yaml_emitter_emit(&emitter, &event);
+
+  /* Create and emit the STREAM-END event. */
+  yaml_stream_end_event_initialize(&event);
+  yaml_emitter_emit(&emitter, &event);
+
+  yaml_emitter_flush(&emitter);
+  /* Destroy the Emitter object. */
+  yaml_emitter_delete(&emitter);
+
+  fclose(output);
 
   return 0;
 }
