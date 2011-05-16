@@ -44,7 +44,7 @@ static int compare_images(cairo_surface_t* image1, cairo_surface_t* image2)
 
 static void print_usage( const char* appname)
 {
-  printf("Usage: %s {-w: _width_} {-h: _height_} {-f: _frames_} {-l: _loop_} {-d: _directory_prefix_} [input swf] [output filename]\n", appname );
+  printf("Usage: %s {-w: _width_} {-h: _height_} {-f: _frames_} {-l: _loop_} {-d: _directory_prefix_} {-x: center_x} {-y: center_y} [input swf] [output filename]\n", appname );
 }
 
 int main (int argc, char **argv)
@@ -69,7 +69,8 @@ int main (int argc, char **argv)
   cairo_surface_t *surface[2] = {NULL, NULL};
   cairo_t *cr[2] = {NULL, NULL};
   int loop = 0;
-  
+  int center_x = -1;
+  int center_y = -1;
   
   /* Parse the command line arguments */
   for(i = 1; i < argc; ++i )
@@ -96,6 +97,14 @@ int main (int argc, char **argv)
       else if ( arg[1] == 'd' )
       {
         directory_prefix = arg+3;
+      }
+      else if ( arg[1] == 'x' )
+      {
+        center_x = atoi(arg+3);
+      }
+      else if ( arg[1] == 'y' )
+      {
+        center_y = atoi(arg+3);
       }
       else
       {
@@ -195,6 +204,26 @@ int main (int argc, char **argv)
     yaml_emitter_emit(&emitter, &event);
   }
 
+  if (center_x >= 0 )
+  {
+    char buf[256] = {0};
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"center_point_x", strlen("center_point_x"), 1, 1, YAML_ANY_SCALAR_STYLE); 
+    yaml_emitter_emit(&emitter, &event);
+
+    sprintf(buf, "%d", center_x);
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)buf, strlen(buf), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+  }
+  if (center_y >= 0 )
+  {
+    char buf[256] = {0};
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)"center_point_y", strlen("center_point_y"), 1, 1, YAML_ANY_SCALAR_STYLE); 
+    yaml_emitter_emit(&emitter, &event);
+
+    sprintf(buf, "%d", center_y);
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)buf, strlen(buf), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+  }
   
 
   printf("Default frame rate: %f\n", swfdec_player_get_rate(player));
