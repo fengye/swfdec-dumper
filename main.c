@@ -291,6 +291,18 @@ int main (int argc, char **argv)
     }
   }
 
+  /* the last frame output */
+  if ( surface[base_index] )
+  {
+    char buf[256] = {0};
+    sprintf(buf, "%f", (double)accum_interval / 1000.0);
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)output_filename_serial, strlen(output_filename_serial), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+    yaml_scalar_event_initialize(&event, NULL, NULL, (yaml_char_t*)buf, strlen(buf), 1, 1, YAML_ANY_SCALAR_STYLE);
+    yaml_emitter_emit(&emitter, &event);
+    accum_interval = 0;
+  }
+
   cairo_destroy (cr[base_index]);
   cairo_surface_destroy (surface[base_index]);
 
