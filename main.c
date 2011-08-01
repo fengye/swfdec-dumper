@@ -44,7 +44,7 @@ static int compare_images(cairo_surface_t* image1, cairo_surface_t* image2)
 
 static void print_usage( const char* appname)
 {
-  printf("Usage: %s {-w: _width_} {-h: _height_} {-f: _frames_} {-l: _loop_} {-d: _directory_prefix_} {-x: center_x} {-y: center_y} [input swf] [output filename]\n", appname );
+  printf("Usage: %s {-w: _width_} {-h: _height_} {-s: _scale} {-f: _frames_} {-l: _loop_} {-d: _directory_prefix_} {-x: center_x} {-y: center_y} [input swf] [output filename]\n", appname );
 }
 
 int main (int argc, char **argv)
@@ -63,6 +63,7 @@ int main (int argc, char **argv)
   int frame_count = 1;
   unsigned int override_width = 0;
   unsigned int override_height = 0;
+  float override_scale = 1.0f;
   const char* input_filename = NULL;
   const char* output_filename = NULL;
   int base_index = 0;
@@ -85,6 +86,10 @@ int main (int argc, char **argv)
       else if ( arg[1] == 'h' )
       {
         override_height = atoi(arg+3);
+      }
+      else if ( arg[1] == 's' )
+      {
+        override_scale = (float)atof(arg+3);
       }
       else if ( arg[1] == 'f' )
       {
@@ -174,11 +179,11 @@ int main (int argc, char **argv)
   {
     swfdec_player_get_default_size(player, &override_width, &override_height);
   }
-  else
-  {
-    /* need to set player size */
-    swfdec_player_set_size(player, override_width, override_height);
-  }
+
+  /* need to set player size */
+  swfdec_player_set_size(player, 
+    (unsigned int)override_width * override_scale, 
+    (unsigned int)override_height * override_scale);
 
   {
   char buf[256] = {0};
@@ -241,7 +246,9 @@ int main (int argc, char **argv)
   for(i = 0; i < frame_count; ++i )
   {
     int new_index = (base_index + 1) % 2;
-    surface[new_index] = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, override_width, override_height);
+    surface[new_index] = cairo_image_surface_create (CAIRO_FORMAT_ARGB32, 
+      (unsigned int)(override_width * override_scale), 
+      (unsigned int)(override_height * override_scale));
     cr[new_index] = cairo_create (surface[new_index]);
     // render the image
     swfdec_player_render (player, cr[new_index]);
